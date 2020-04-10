@@ -759,8 +759,15 @@ private:
 									}
 								}
 								// answer just with changed value
-								publishMqtt((stat_topic+topic).c_str(), property->toString().c_str(), device->isMqttRetain());
-							}			
+								String prop = String(property->getId());
+								if ((prop == "deviceOn") || (prop == "schedulesMode") ||  (prop == "temperature") || (prop == "floorTemperature") || (prop == "state")) {
+									String stat_topic = String(getMqttTopic()) + String("/") + String(MQTT_STAT) + String("/things/") + String(device->getId()) + String("/properties/") + String(prop);
+									publishMqtt(stat_topic.c_str(), property->toString().c_str(), device->isMqttRetain());
+								} else if ((prop == "mode") || (prop == "ecoMode") || (prop == "locked") || (prop == "targetTemperature")) {
+									String cmnd_topic = String(getMqttTopic()) + String("/") + String(MQTT_CMND) + String("/things/") + String(device->getId()) + String("/properties/") + String(prop);
+									publishMqtt(cmnd_topic.c_str(), property->toString().c_str(), device->isMqttRetain());
+								}
+							}
 							wlog->notice(F("Sending device State to %sproperties for device %s"), stat_topic.c_str(), device->getName());				
 							mqttSendDeviceState(stat_topic+"properties", device);
 						} else {
@@ -785,7 +792,6 @@ private:
 				wlog->notice(F("Connected to MQTT server."));
 				//Send device structure and status
 				mqttClient->subscribe("devices/#");
-
 				WDevice *device = this->firstDevice;
 				while (device != nullptr) {
 					String topic("devices/");
@@ -797,7 +803,9 @@ private:
 					json.propertyString("ip", getDeviceIp().toString().c_str());
 					json.propertyString("topic", ((String)getMqttTopic()+"/"+MQTT_STAT+"/things/"+device->getId()).c_str());
 					json.endObject();
-					mqttClient->publish(topic.c_str(), response->c_str());
+					if (!isSupportingMqttSingleValues()) {
+						mqttClient->publish(topic.c_str(), response->c_str());
+					}
 					device = device->next;
 				}
 				mqttClient->unsubscribe("devices/#");
@@ -1358,12 +1366,19 @@ private:
 				WProperty* property = device->firstProperty;
 				while (property != nullptr) {
 					if (property->isVisible(MQTT) && property->isChanged() && !property->isNull()) {
-						String stat_topic = String(getMqttTopic()) + String("/") + String(MQTT_STAT) + String("/things/") + String(device->getId()) + String("/properties/") + String(property->getId());
-						wlog->trace(F("sending changed property '%s' with value '%s' for device '%s' to topic '%s'"),
-							property->getId(), property->toString().c_str(), device->getId(), stat_topic.c_str());
-						publishMqtt(stat_topic.c_str(), property->toString().c_str(), device->isMqttRetain());
+						String prop = String(property->getId());
+						if ((prop == "deviceOn") || (prop == "schedulesMode") ||  (prop == "temperature") || (prop == "floorTemperature") || (prop == "state")) {
+							String stat_topic = String(getMqttTopic()) + String("/") + String(MQTT_STAT) + String("/things/") + String(device->getId()) + String("/properties/") + String(prop);
+							wlog->trace(F("sending changed property '%s' with value '%s' for device '%s' to topic '%s'"),
+								property->getId(), property->toString().c_str(), device->getId(), stat_topic.c_str());
+							publishMqtt(stat_topic.c_str(), property->toString().c_str(), device->isMqttRetain());
+						} else if ((prop == "mode") || (prop == "ecoMode") || (prop == "locked") || (prop == "targetTemperature")) {
+							String cmnd_topic = String(getMqttTopic()) + String("/") + String(MQTT_CMND) + String("/things/") + String(device->getId()) + String("/properties/") + String(prop);
+							wlog->trace(F("sending changed property '%s' with value '%s' for device '%s' to topic '%s'"),
+								property->getId(), property->toString().c_str(), device->getId(), cmnd_topic.c_str());
+							publishMqtt(cmnd_topic.c_str(), property->toString().c_str(), device->isMqttRetain());
+						}
 						property->setUnChanged();
-
 						// only one per loop() -> bye
 						return;
 					}
