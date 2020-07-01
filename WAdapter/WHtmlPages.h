@@ -193,6 +193,13 @@ const static char HTTP_TEXT_FIELD[]    PROGMEM = R"=====(
 	</div>
 )=====";
 
+const static char HTTP_TEXT_FIELD_INTEGER[]    PROGMEM = R"=====(
+	<div>
+		%s<br>
+		<input type='text' name='%s' maxlength=%s value='%d'>
+	</div>
+)=====";
+
 const static char HTTP_PASSWORD_FIELD[]    PROGMEM = R"=====(
 	<div>
 		<label>%s <small><input type="checkbox" onclick="sp('%s')"> (show password)</small></label><br>
