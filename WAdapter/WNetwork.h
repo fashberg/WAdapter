@@ -142,6 +142,7 @@ public:
 				[this](const WiFiEventStationModeGotIP &event) {
 					wlog->notice(F("WiFi: Station connected, IP: %s"), this->getDeviceIp().toString().c_str());
 					this->connectFailCounter=0;
+					startMDNS();
 					//Connect, if webThing supported and Wifi is connected as client
 					this->notify(true);
 				});
@@ -156,9 +157,6 @@ public:
 #endif
 					}
 				});
-
-
-
 
 		
 		wlog->notice(F("firmware: %s"), firmwareVersion.c_str());
@@ -421,8 +419,10 @@ true ||
 		//if ((WiFi.status() != WL_CONNECTED) || (!this->isSupportingWebThing())) {
 		webServer->on("/", HTTP_GET, std::bind(&WNetwork::handleHttpRootRequest, this));
 		webServer->on("/config", HTTP_GET, std::bind(&WNetwork::handleHttpRootRequest, this));
+		// Android Captive Portal Detection
 		webServer->on("/generate_204", HTTP_GET, std::bind(&WNetwork::handleHttpRootRequest, this));
-		//webServer->on("/generate_204", HTTP_GET, std::bind(&WNetwork::handleCaptivePortal, this));
+		// Apple Captive Portal Detection
+		webServer->on("/hotspot-detect.html", HTTP_GET, std::bind(&WNetwork::handleHttpRootRequest, this));
 
 		WDevice *device = this->firstDevice;
 		while (device != nullptr) {
@@ -467,34 +467,38 @@ true ||
 				std::bind(&WNetwork::handleHttpFirmwareUpdateFinished, this),
 				std::bind(&WNetwork::handleHttpFirmwareUpdateProgress, this));
 
-#ifndef MINIMAL
-		//WebThings
-		if (this->isSupportingWebThing()) {
-			//Make the thing discoverable
-			//String mdnsName = getHostName() + ".local";
-			String mdnsName = this->getDeviceIp().toString();
-			if (MDNS.begin(mdnsName)) {
-				MDNS.addService("http", "tcp", 80);
-				MDNS.addServiceTxt("http", "tcp", "url", "http://" + mdnsName + "/things");
-				MDNS.addServiceTxt("http", "tcp", "webthing", "true");
-				wlog->notice(F("MDNS responder started at %s"), mdnsName.c_str());
-			}
-			webServer->on("/things", HTTP_GET, std::bind(&WNetwork::sendDevicesStructure, this));
-			webServer->on("/things/", HTTP_GET, std::bind(&WNetwork::sendDevicesStructure, this));
-			WDevice *device = this->firstDevice;
-			while (device != nullptr) {
-				bindWebServerCallsNetwork(device);
-				device = device->next;
-			}
-		}
-#endif
-
-		//Start http server
 		wlog->notice(F("webServer prepared."));
 
 		webServer->begin();
 		this->notify(false);
 		return;
+	}
+
+	void startMDNS(){
+		#ifndef MINIMAL
+				//WebThings
+				if (this->isSupportingWebThing()) {
+					//Make the thing discoverable
+					//String mdnsName = getHostName() + ".local";
+					String mdnsName = this->getDeviceIp().toString();
+					wlog->notice(F("MDNS init, name: %s"), mdnsName.c_str());
+					MDNS.end();
+					if (MDNS.begin(mdnsName)) {
+						wlog->notice(F("MDNS OK"));
+						MDNS.addService("http", "tcp", 80);
+						MDNS.addServiceTxt("http", "tcp", "url", "http://" + mdnsName + "/things");
+						MDNS.addServiceTxt("http", "tcp", "webthing", "true");
+						wlog->notice(F("MDNS responder started at %s"), mdnsName.c_str());
+					}
+					webServer->on("/things", HTTP_GET, std::bind(&WNetwork::sendDevicesStructure, this));
+					webServer->on("/things/", HTTP_GET, std::bind(&WNetwork::sendDevicesStructure, this));
+					WDevice *device = this->firstDevice;
+					while (device != nullptr) {
+						bindWebServerCallsNetwork(device);
+						device = device->next;
+					}
+				}
+		#endif
 	}
 
 	void stopWebServer() {
@@ -1089,43 +1093,61 @@ private:
 			page->print("<tr><th>Chip ID:</th><td>");
 			page->print(ESP.getChipId());
 			page->print("</td></tr>");
+
 			page->print("<tr><th>Flash Chip ID:</th><td>");
 			page->print(ESP.getFlashChipId());
 			page->print("</td></tr>");
+
 			page->print("<tr><th>IDE Flash Size:</th><td>");
 			page->print(ESP.getFlashChipSize());
 			page->print("</td></tr>");
+
 			page->print("<tr><th>Real Flash Size:</th><td>");
 			page->print(ESP.getFlashChipRealSize());
 			page->print("</td></tr>");
+
 			page->print("<tr><th>IP address:</th><td>");
 			page->print(this->getDeviceIp().toString());
 			page->print("</td></tr>");
+
 			page->print("<tr><th>MAC address:</th><td>");
 			page->print(WiFi.macAddress());
 			page->print("</td></tr>");
+
+			page->print("<tr><th>Current WiFi RSSI:</th><td>");
+			page->print(WiFi.RSSI());
+			page->print(" dBm");
+			page->print("</td></tr>");
+
 			page->print("<tr><th>Flash Chip size:</th><td>");
 			page->print(ESP.getFlashChipSize());
 			page->print(" kByte");
+			page->print("</td></tr>");
+
 			page->print("<tr><th>Current sketch size:</th><td>");
 			page->print(ESP.getSketchSize());
 			page->print(" kByte");
 			page->print("</td></tr>");
+
 			page->print("<tr><th>Available sketch size:</th><td>");
 			page->print(ESP.getFreeSketchSpace());
 			page->print(" kByte");
+			page->print("</td></tr>");
+
 			page->print("<tr><th>Free heap size:</th><td>");
 			page->print(ESP.getFreeHeap());
 			page->print(" kByte");
 			page->print("</td></tr>");
+
 			page->print("<tr><th>Largest free heap block:</th><td>");
 			page->print(ESP.getMaxFreeBlockSize());
 			page->print(" kByte");
 			page->print("</td></tr>");
+
 			page->print("<tr><th>Heap fragmentation:</th><td>");
 			page->print(ESP.getHeapFragmentation());
 			page->print(" %</td></tr>");
-			page->print("</td></tr>");
+			
 			page->print("<tr><th>Uptime:</th><td>");
 			unsigned long secs=millis()/1000;
 			unsigned int days = secs / (60 * 60 * 24);
@@ -1137,6 +1159,7 @@ private:
 			page->printf_P("%dd, %dh, %dm, %ds",
 			days, hours, minutes, secs);
 			page->print("</td></tr>");
+
 			page->print("</table>");			
 			page->print(FPSTR(HTTP_HOME_BUTTON));
 			page->webserverSendAndFlush(webServer);
