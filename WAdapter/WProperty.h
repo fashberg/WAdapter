@@ -381,7 +381,7 @@ public:
 			return String(c_str());
 			break;
 		}
-
+		return String("");
 	}
 
 	virtual void toJsonValue(WJson* json, bool onlyValue=false) {

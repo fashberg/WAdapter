@@ -194,7 +194,7 @@ public:
 
     }
 
-    virtual bool off() {
+    virtual void off() {
 
     }
 
