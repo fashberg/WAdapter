@@ -652,10 +652,10 @@ true ||
 	}
 
 	void logHeap(const char * s){
-		this->log()->trace(F("Heap Info %s: MaxFree: %d"), s, ESP.getMaxFreeBlockSize());
+		this->log()->trace(F("Heap Info %s: MaxFree: %d, Uptime: %d"), s, ESP.getMaxFreeBlockSize(), millis()/1000);
 	}
 	void logHeap(){
-		this->log()->trace(F("Heap Info: MaxFree: %d"), ESP.getMaxFreeBlockSize());
+		this->log()->trace(F("Heap Info: MaxFree: %d, Uptime: %d"), ESP.getMaxFreeBlockSize(), millis()/1000);
 	}
 
 	WStringStream* getMQTTResponseStream() {
