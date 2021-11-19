@@ -3,6 +3,7 @@
 
 #include "Arduino.h"
 #include "WJson.h"
+#include <strings.h>
 
 #define STATE_START_DOCUMENT     0
 #define STATE_DONE               -1
@@ -497,7 +498,7 @@ private:
 	}
 
 	WProperty* endTrue() {
-		WProperty* result = false;
+		WProperty* result = nullptr;
 		if (currentKey != "") {
 			buffer[bufferPos] = '\0';
 			//String value = String(buffer);
@@ -511,7 +512,7 @@ private:
 	}
 
 	WProperty* endFalse() {
-		WProperty* result = false;
+		WProperty* result = nullptr;
 		if (currentKey != "") {
 			buffer[bufferPos] = '\0';
 			//String value = String(buffer);
