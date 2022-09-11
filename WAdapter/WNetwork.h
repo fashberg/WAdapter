@@ -907,6 +907,7 @@ true ||
 	}
 
 void handleHttpFirmwareUpdateProgress(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+		if (this->updateRunning) return;
 		//Start firmwareUpdate
 		this->updateRunning = true;
 #ifndef MINIMAL
@@ -1297,7 +1298,7 @@ private:
 			"", HTTP_PAGE_CONFIIGURATION_OPTION_APFALLBACK);
 			//mqtt
 			page->printf_P(HTTP_PAGE_CONFIGURATION_OPTION, "mq", (this->isSupportingMqtt() ? HTTP_CHECKED : ""), 
-				F("id='mqttEnabled'onclick='hideMqttGroup()'"), HTTP_PAGE_CONFIIGURATION_OPTION_MQTT);
+				F("id='mqttEnabled' onclick='hideMqttGroup()'"), HTTP_PAGE_CONFIIGURATION_OPTION_MQTT);
 			page->printf_P(HTTP_PAGE_CONFIGURATION_MQTT_BEGIN);
 			page->printf_P(HTTP_TEXT_FIELD, F("MQTT Server:"), "ms", 32, getMqttServer());
 			page->printf_P(HTTP_TEXT_FIELD, F("MQTT Port:"), "mo", 4, getMqttPort());

@@ -103,6 +103,14 @@ function hideMqttGroup() {
 		x.style.display = 'none';
 	}
 }
+function disableBtn(btnid) {
+	var b=eb(btnid);
+	if (b){
+		b.disabled = true;
+		b.innerHTML = '...';
+	}
+	return false;
+}
 )=====";
 
 const static char HTTP_BUTTON[]    PROGMEM = R"=====(
@@ -163,12 +171,12 @@ const static char HTTP_HOME_BUTTON[]              PROGMEM = R"=====(
 )=====";
 
 const static char HTTP_FORM_FIRMWARE[] PROGMEM = R"=====(
-<form method='POST' action='' enctype='multipart/form-data'>
+<form method='POST' action='' enctype='multipart/form-data' onSubmit="disableBtn('fw')">
 	<div>
 		<input type='file' accept='.bin, .bin.gz' name='update'>
 	</div>
 	<div>
-		<button type='submit'>Update firmware</button>
+		<button type='submit' id="fw">Update firmware</button>
 	</div>
 </form>
 )=====";
