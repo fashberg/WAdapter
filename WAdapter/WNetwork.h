@@ -907,15 +907,15 @@ true ||
 	}
 
 void handleHttpFirmwareUpdateProgress(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-		if (this->updateRunning) return;
 		//Start firmwareUpdate
-		this->updateRunning = true;
 #ifndef MINIMAL
 		//Close existing MQTT connections
 		this->disconnectMqtt();
 #endif
 
 		if (!index){
+			if (this->updateRunning) return;
+			this->updateRunning = true;
 			firmwareUpdateError = nullptr;
 			unsigned long free_space = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
 			wlog->notice(F("Update starting: %s"), filename.c_str());
