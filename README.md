@@ -1,7 +1,9 @@
 # WAdapter
+
 Network management tools for ESP8266 programming
 
 Provides following functionality
+
 * Supports devices and properties
 * Devices can be configured via Web-Interface
 * Network connection is managed by this library (incl. reconnection)
