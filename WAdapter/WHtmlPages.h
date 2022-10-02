@@ -3,6 +3,7 @@
 
 #include "Arduino.h"
 #include "WStringStream.h"
+#include "cstrreplace.h"
 
 const char* HTTP_SELECTED PROGMEM = "selected";
 const char* HTTP_CHECKED PROGMEM = "checked";
@@ -370,6 +371,15 @@ void htmlTableRowTitle(AsyncResponseStream* page,  const __FlashStringHelper * t
 
 void htmlTableRowEnd(AsyncResponseStream* page){
 	page->print(F("</td></tr>"));
+}
+
+char* htmlEscape(const char* s){
+	char* rep1=cstrReplace(s, "&", "&amp;");
+	char* rep2=cstrReplace(rep1, "<", "&lt;");
+	free(rep1);
+	char* rep3=cstrReplace(rep2, ">", "&gt;");
+	free(rep2);
+	return rep3;
 }
 
 #endif

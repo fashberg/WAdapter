@@ -2,6 +2,7 @@
 #define _WJSON_H__
 
 #include "Arduino.h"
+#include "cstrreplace.h"
 
 const static char BBEGIN = '[';
 const static char BEND = ']';
@@ -224,20 +225,28 @@ public:
 		return string(text1, text2, text3, text4, text5, text6, text7, text8, text9, nullptr);
 	}
 
+	void streamPrintQuoted(Print* stream, const char* t){
+		char* rep1=cstrReplace(t, "\\", "\\\\");
+		char* rep2=cstrReplace(rep1, "\"", "\\\"");
+		free(rep1);
+		stream->print(rep2);
+		free(rep2);
+	}
+
 	WJson& string(const char *text1, const char *text2, const char *text3, const char *text4, const char *text5, const char *text6, const char *text7, const char *text8, const char *text9, const char *text10) {
 		if (!separatorAlreadyCalled)
 			ifSeparator();
 		stream->print(QUOTE);
-		if (text1 != nullptr) stream->print(text1);
-		if (text2 != nullptr) stream->print(text2);
-		if (text3 != nullptr) stream->print(text3);
-		if (text4 != nullptr) stream->print(text4);
-		if (text5 != nullptr) stream->print(text5);
-		if (text6 != nullptr) stream->print(text6);
-		if (text7 != nullptr) stream->print(text7);
-		if (text8 != nullptr) stream->print(text8);
-		if (text9 != nullptr) stream->print(text9);
-		if (text10 != nullptr) stream->print(text10);
+		if (text1 != nullptr) streamPrintQuoted(stream, text1);
+		if (text2 != nullptr) streamPrintQuoted(stream, text2);
+		if (text3 != nullptr) streamPrintQuoted(stream, text3);
+		if (text4 != nullptr) streamPrintQuoted(stream, text4);
+		if (text5 != nullptr) streamPrintQuoted(stream, text5);
+		if (text6 != nullptr) streamPrintQuoted(stream, text6);
+		if (text7 != nullptr) streamPrintQuoted(stream, text7);
+		if (text8 != nullptr) streamPrintQuoted(stream, text8);
+		if (text9 != nullptr) streamPrintQuoted(stream, text9);
+		if (text10 != nullptr) streamPrintQuoted(stream, text10);
 		stream->print(QUOTE);
 		return *this;
 	}

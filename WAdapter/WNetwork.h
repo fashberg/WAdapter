@@ -319,8 +319,9 @@ true ||
 		if (!isSoftAP()){
 #ifndef MINIMAL
 			//MQTT connection
-			if ((lastMqttConnect == 0) || (now - lastMqttConnect > 300000)){
-				if (mqttReconnect()) lastMqttConnect = now;
+			if (!this->isMqttConnected() && ((lastMqttConnect == 0) || (now - lastMqttConnect > 30000))){
+				mqttReconnect();
+				lastMqttConnect = now;
 			}
 			if ((!isUpdateRunning()) && (this->isMqttConnected())) {
 				mqttClient->loop();
