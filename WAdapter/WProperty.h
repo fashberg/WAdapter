@@ -426,7 +426,6 @@ public:
 			break;
 		}
 		return String("");
-
 	}
 
 	virtual void toJsonValue(WJson* json, bool onlyValue=false) {
