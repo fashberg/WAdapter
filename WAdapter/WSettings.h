@@ -9,6 +9,7 @@ const byte STORED_FLAG_OLDLOW = 0x59; //1.00 ..
 const byte STORED_FLAG_OLDHIGH = 0x63; //1.02
 const byte STORED_FLAG_OLD = 0xF0; //FAS
 const byte FLAG_OPTIONS_NETWORK = 0x64; //1.09
+const byte FLAG_OPTIONS_NETWORK_STATIC_IP = 0x65; //1.23
 const int EEPROM_SIZE = 512;
 unsigned int startAddressReadOffset = 2;
 unsigned int startAddressSaveOffset = 2;
@@ -25,7 +26,8 @@ const int NETWORKSETTINGS_UNKNOWN = 0;
 const int NETWORKSETTINGS_PRE_102 = 1;
 const int NETWORKSETTINGS_PRE_109 = 2;
 const int NETWORKSETTINGS_PRE_FAS114 = 3;
-const int NETWORKSETTINGS_CURRENT = 4;
+const int NETWORKSETTINGS_PRE_FAS123 = 4;
+const int NETWORKSETTINGS_CURRENT = 5;
 
 
 const int APPLICATIONSETTINGS_UNKNOWN = 0;
@@ -45,11 +47,20 @@ public:
 		this->_existsSettingsApplication = false;		
 		this->_networkSettingsVersion=NETWORKSETTINGS_UNKNOWN;
 		this->_applicationSettingsVersion=APPLICATIONSETTINGS_UNKNOWN;
-		if (epromStored==FLAG_OPTIONS_NETWORK){
+		if ((epromStored==FLAG_OPTIONS_NETWORK) || (epromStored==FLAG_OPTIONS_NETWORK_STATIC_IP)){ 
 			this->log->trace(F("settings: NetworksSettings found in Current Version"));
 			// klaus >=1.09 and fas >=1.14-fas
 			this->_existsSettingsNetwork = true;
-			this->_networkSettingsVersion=NETWORKSETTINGS_CURRENT;
+            
+            if (epromStored==FLAG_OPTIONS_NETWORK)
+			{
+                this->_networkSettingsVersion=NETWORKSETTINGS_PRE_FAS123;
+            }
+            else
+            {
+                this->_networkSettingsVersion=NETWORKSETTINGS_CURRENT;
+            }
+
 			uint8_t epromStoredApplication = EEPROM.read(1);
 			this->log->trace(F("settings: old byte 1: 0x%02x"), epromStoredApplication);
 			this->_applicationSettingsVersion=epromStoredApplication;
@@ -96,7 +107,7 @@ public:
 			settingItem = settingItem->next;
 		}
 		//1. Byte - settingsStored flag
-		EEPROM.write(0, FLAG_OPTIONS_NETWORK);
+		EEPROM.write(0, FLAG_OPTIONS_NETWORK_STATIC_IP);
 		EEPROM.write(1, this->appSettingsFlag);
 		EEPROM.commit();
 		EEPROM.end();
@@ -188,8 +199,8 @@ public:
 				case LONG: {
 					long four = EEPROM.read(settingItem->address + startAddressReadOffset);
 					long three = EEPROM.read(settingItem->address + startAddressReadOffset + 1);
-					long two = EEPROM.read(settingItem->address + 2);
-					long one = EEPROM.read(settingItem->address + startAddressReadOffset + startAddressReadOffset + 3);
+					long two = EEPROM.read(settingItem->address + startAddressReadOffset + 2);
+					long one = EEPROM.read(settingItem->address + startAddressReadOffset + 3);
 					long value = ((four << 0) & 0xFF) + ((three << 8) & 0xFFFF) + ((two << 16) & 0xFFFFFF) + ((one << 24) & 0xFFFFFFFF);
 					property->setLong(value);
 					break;
@@ -197,15 +208,18 @@ public:
 				case UNSIGNED_LONG: {
 					long four = EEPROM.read(settingItem->address + startAddressReadOffset);
 					long three = EEPROM.read(settingItem->address + startAddressReadOffset + 1);
-					long two = EEPROM.read(settingItem->address + 2);
-					long one = EEPROM.read(settingItem->address + startAddressReadOffset + startAddressReadOffset + 3);
+					long two = EEPROM.read(settingItem->address + startAddressReadOffset + 2);
+					long one = EEPROM.read(settingItem->address + startAddressReadOffset + 3);
 					long value = ((four << 0) & 0xFF) + ((three << 8) & 0xFFFF) + ((two << 16) & 0xFFFFFF) + ((one << 24) & 0xFFFFFFFF);
 					property->setUnsignedLong(value);
 					break;
 				}
-				case BYTE:
-					property->setByte(EEPROM.read(settingItem->address + startAddressReadOffset));
+				case BYTE: {
+                    byte by = EEPROM.read(settingItem->address + startAddressReadOffset);
+					property->setByte(by);
+                    log->trace(F("Byte loaded: '0x%02x'"), by);
 					break;
+                }
 				case STRING:
 					const char* rs = readString(settingItem->address + startAddressReadOffset, property->getLength());
 					log->trace(F("String loaded: '%s'"), rs);
