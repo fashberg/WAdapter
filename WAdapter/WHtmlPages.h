@@ -95,6 +95,15 @@ function c(l){
 	eb('s').value=l.innerText||l.textContent;
 	eb('p').focus();
 }
+function hideStaticIpGroup() {
+	var cb = eb('staticIpEnabled'); 
+	var x = eb('staticIpGroup');
+	if (cb.checked) {
+		x.style.display = 'block';
+	} else {
+		x.style.display = 'none';
+	}
+}
 function hideMqttGroup() {
 	var cb = eb('mqttEnabled'); 
 	var x = eb('mqttGroup');
@@ -122,6 +131,14 @@ const static char HTTP_BUTTON[]    PROGMEM = R"=====(
 	</div>
 )=====";
 
+const static char HTTP_PAGE_STATIC_IP_CONFIGURATION_STYLE[]    PROGMEM = R"=====(
+<style>
+#staticIpGroup {
+	border: 1px solid gray;
+	display:%s;
+}
+</style>
+)=====";
 
 const static char HTTP_PAGE_CONFIGURATION_STYLE[]    PROGMEM = R"=====(
 <style>
@@ -130,6 +147,14 @@ const static char HTTP_PAGE_CONFIGURATION_STYLE[]    PROGMEM = R"=====(
 	display:%s;
 }
 </style>
+)=====";
+
+const static char HTTP_PAGE_CONFIGURATION_STATIC_IP_BEGIN[]    PROGMEM = R"=====(
+	<div id='staticIpGroup'>
+)=====";
+
+const static char HTTP_PAGE_CONFIGURATION_STATIC_IP_END[]    PROGMEM = R"=====(
+	</div>
 )=====";
 
 const static char HTTP_PAGE_CONFIGURATION_MQTT_BEGIN[]    PROGMEM = R"=====(
@@ -154,6 +179,8 @@ const static char HTTP_PAGE_CONFIIGURATION_OPTION_MQTT[] PROGMEM = "Support MQTT
 const static char HTTP_PAGE_CONFIIGURATION_OPTION_APFALLBACK[] PROGMEM = "Enable Fallback to AP-Mode if WiFi Connection gets lost";
 const static char HTTP_PAGE_CONFIIGURATION_OPTION_MQTTSINGLEVALUES[] PROGMEM = "Send all properties also in separate MQTT messages";
 
+const static char HTTP_PAGE_CONFIIGURATION_OPTION_STATIC_IP[] PROGMEM = "Enable static IP configuration";
+
 const static char HTTP_SAVED[]              PROGMEM = R"=====(
 <div>
 	%s
@@ -172,6 +199,7 @@ const static char HTTP_HOME_BUTTON[]              PROGMEM = R"=====(
 )=====";
 
 const static char HTTP_FORM_FIRMWARE[] PROGMEM = R"=====(
+Hint: You will loose all settings when Downgrading to WThermostat &lt; 1.23!<br>
 <form method='POST' action='' enctype='multipart/form-data' onSubmit="disableBtn('fw')">
 	<div>
 		<input type='file' accept='.bin, .bin.gz' name='update'>

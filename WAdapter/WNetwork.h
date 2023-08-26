@@ -88,10 +88,16 @@ const byte NETBITS1_MQTT       = 1;
 const byte NETBITS1_HASS       = 2;
 const byte NETBITS1_APFALLBACK = 4;
 const byte NETBITS1_MQTTSINGLEVALUES = 8;
+const byte NETBITS1_STATIC_IP = 16;
 
 const char* PROP_IDX PROGMEM = "idx";
 const char* PROP_SSID PROGMEM = "ssid";
 const char* PROP_PASSWORD PROGMEM = "password";
+const char* PROP_STATICIP PROGMEM = "staticIp";
+const char* PROP_SUBNETMASK PROGMEM = "subnetMask";
+const char* PROP_GATEWAY PROGMEM = "gateway";
+const char* PROP_DNS1 PROGMEM = "dns1";
+const char* PROP_DNS2 PROGMEM = "dns2";
 const char* PROP_NETBITS1 PROGMEM = "netbits1";
 const char* PROP_MQTTSERVER PROGMEM = "mqttServer";
 const char* PROP_MQTTPORT PROGMEM = "mqttPort";
@@ -183,7 +189,7 @@ public:
 
 		settings = new WSettings(wlog, appSettingsFlag, false);
 		if (settings->getNetworkSettingsVersion()!=NETWORKSETTINGS_CURRENT || settings->getApplicationSettingsVersion()!=appSettingsFlag){
-			wlog->trace(F("loading oldSettings (network: %d, app: %d)"), settings->getNetworkSettingsVersion(), settings->getApplicationSettingsVersion());
+			wlog->trace(F("loading oldSettings (network: 0x%02x, app: 0x%02x)"), settings->getNetworkSettingsVersion(), settings->getApplicationSettingsVersion());
 			settingsOld = new WSettings(wlog, appSettingsFlag, true);
 		} else {
 			settingsOld = nullptr;
@@ -302,6 +308,42 @@ true ||
 				strlen(getSsid()), strlen(getPassword()), strlen(getHostName().c_str()));
 			WiFi.mode(WIFI_STA);
 			WiFi.hostname(getHostName());
+
+            if (isStaticIpEnabled())
+            {
+                wlog->notice(F("WiFi: Static IP is configured with IP '%s', gateway '%s', subnet mask '%s', DNS1 '%s', DNS2 '%s'"), 
+                            getStaticIp(), getGateway(), getSubnetMask(), getDns1(), getDns2());
+                
+                IPAddress staticIp, gateway, subnetMask, dns1, dns2;
+                bool valuesAreValid = true;
+
+                valuesAreValid &= staticIp.fromString(getStaticIp());
+                valuesAreValid &= gateway.fromString(getGateway());
+                valuesAreValid &= subnetMask.fromString(getSubnetMask());
+                bool dns1IsValid = dns1.fromString(getDns1());
+                bool dns2IsValid = dns2.fromString(getDns2());
+
+                if (valuesAreValid)
+                {
+                    if (dns1IsValid)
+                    {
+                        if (dns2IsValid)
+                            WiFi.config(staticIp, gateway, subnetMask, dns1, dns2);
+                        else
+                            WiFi.config(staticIp, gateway, subnetMask, dns1);                        
+                    }
+                    else
+                    {
+                        WiFi.config(staticIp, gateway, subnetMask);
+                    }
+                }
+            }
+            else
+            {
+                // Reset it to DHCP
+                WiFi.config(0U, 0U, 0U);
+            }
+
 			WiFi.begin(getSsid(), getPassword());
 			logHeap(PSTR("Wifi.begin"));
 			apStartedAt=0;
@@ -583,6 +625,10 @@ true ||
 		return true;
 	}
 
+	bool isStaticIpEnabled() {
+		return this->staticIpEnabled->getBoolean();
+	}
+
 	bool isSupportingMqtt() {
 		return this->supportingMqtt->getBoolean();
 	}
@@ -609,6 +655,26 @@ true ||
 
 	const char* getPassword() {
 		return settings->getString(PROP_PASSWORD);
+	}
+
+	const char* getStaticIp() {
+		return settings->getString(PROP_STATICIP);
+	}
+
+	const char* getSubnetMask() {
+		return settings->getString(PROP_SUBNETMASK);
+	}
+
+	const char* getGateway() {
+		return settings->getString(PROP_GATEWAY);
+	}
+    
+	const char* getDns1() {
+		return settings->getString(PROP_DNS1);
+	}
+    
+	const char* getDns2() {
+		return settings->getString(PROP_DNS2);
 	}
 
 	const char* getMqttServer() {
@@ -970,8 +1036,12 @@ private:
 	WProperty *supportingApFallback;
 	WProperty *supportingMqttSingleValues;
 	WProperty *mqttBaseTopic;
-	WProperty *mqttStateTopic;
-	WProperty *mqttSetTopic;
+    WProperty *staticIpEnabled;
+    WProperty *staticIp;
+    WProperty *subnetMask;
+    WProperty *gateway;
+    WProperty *dns1;
+    WProperty *dns2;
 	char * bodyBuffer;
 #ifndef MINIMAL
 	WAdapterMqtt *mqttClient;
@@ -1282,6 +1352,11 @@ private:
 		}
 	}
 
+	String ipToStr(IPAddress ip){
+		if (ip.isSet()) return ip.toString();
+		return "";
+	}
+
 	void handleHttpNetworkConfiguration(AsyncWebServerRequest *request) {
 		if (isWebServerRunning()) {
 			// stop timer 
@@ -1292,17 +1367,31 @@ private:
 			printHttpCaption(page);
 			page->printf_P(HTTP_CONFIG_PAGE_BEGIN, ID_NETWORK);
 			page->printf_P(HTTP_PAGE_CONFIGURATION_STYLE, (this->isSupportingMqtt() ? F("block") : F("none")));
+            page->printf_P(HTTP_PAGE_STATIC_IP_CONFIGURATION_STYLE, (this->isStaticIpEnabled() ? F("block") : F("none")));
+
 			page->printf_P(HTTP_TEXT_FIELD, F("Hostname:"), "i", 16, getIdx());
 			page->printf_P(HTTP_TEXT_FIELD, F("WiFi SSID (only 2.4G, name is case sensitive):"), "s", 32, getSsid());
 			page->printf_P(HTTP_PASSWORD_FIELD, F("WiFi password:"), "p", "p", "p", 32, (strlen(getPassword()) ?  FORM_PW_NOCHANGE : ""));
 			page->printf_P(HTTP_PAGE_CONFIGURATION_OPTION, "apfb", (this->isSupportingApFallback() ? HTTP_CHECKED : ""),
 			"", HTTP_PAGE_CONFIIGURATION_OPTION_APFALLBACK);
+
+            // Static IP
+            page->printf_P(HTTP_PAGE_CONFIGURATION_OPTION, "staticIpEnabled", (this->isStaticIpEnabled() ? HTTP_CHECKED : ""), 
+				F("id='staticIpEnabled' onclick='hideStaticIpGroup()'"), HTTP_PAGE_CONFIIGURATION_OPTION_STATIC_IP);
+            page->printf_P(HTTP_PAGE_CONFIGURATION_STATIC_IP_BEGIN);
+			page->printf_P(HTTP_TEXT_FIELD, F("Static IP:"), "staticip", 15, (strlen(getStaticIp()) ? getStaticIp() : (!isSoftAP() ? ipToStr(WiFi.localIP()).c_str() : "" )));
+			page->printf_P(HTTP_TEXT_FIELD, F("Subnet Mask:"), "subnet", 15, (strlen(getStaticIp()) && strlen(getSubnetMask()) ? getSubnetMask() : (!isSoftAP() ? ipToStr(WiFi.subnetMask()).c_str()  : "" )));
+			page->printf_P(HTTP_TEXT_FIELD, F("Gateway:"), "gateway", 15, (strlen(getGateway()) ? getGateway() : (!isSoftAP() ? ipToStr(WiFi.gatewayIP()).c_str()  : "" )));
+			page->printf_P(HTTP_TEXT_FIELD, F("DNS1:"), "dns1", 15, (strlen(getDns1()) ? getDns1() : (!isSoftAP() ? ipToStr(WiFi.dnsIP(0)).c_str()  : "" )));
+			page->printf_P(HTTP_TEXT_FIELD, F("DNS2:"), "dns2", 15, (strlen(getDns2()) ? getDns2() : (!isSoftAP() ? ipToStr(WiFi.dnsIP(1)).c_str()  : "" )));
+			page->printf_P(HTTP_PAGE_CONFIGURATION_STATIC_IP_END);
+
 			//mqtt
 			page->printf_P(HTTP_PAGE_CONFIGURATION_OPTION, "mq", (this->isSupportingMqtt() ? HTTP_CHECKED : ""), 
 				F("id='mqttEnabled' onclick='hideMqttGroup()'"), HTTP_PAGE_CONFIIGURATION_OPTION_MQTT);
 			page->printf_P(HTTP_PAGE_CONFIGURATION_MQTT_BEGIN);
 			page->printf_P(HTTP_TEXT_FIELD, F("MQTT Server:"), "ms", 32, getMqttServer());
-			page->printf_P(HTTP_TEXT_FIELD, F("MQTT Port:"), "mo", 4, getMqttPort());
+			page->printf_P(HTTP_TEXT_FIELD, F("MQTT Port:"), "mo", 5, getMqttPort());
 			page->printf_P(HTTP_TEXT_FIELD, F("MQTT User:"), "mu", 16, getMqttUser());
 			page->printf_P(HTTP_PASSWORD_FIELD, F("MQTT Password:"), "mp", "mp", "mp", 32, (strlen(getMqttPassword()) ?  FORM_PW_NOCHANGE : ""));
 			page->printf_P(HTTP_TEXT_FIELD, F("Topic, e.g.'therm/room':"), "mt", 32, getMqttTopic());
@@ -1340,8 +1429,18 @@ private:
 			if (getValueOrEmpty(request, "mqhass").equals("true")) nb1 |= NETBITS1_HASS;
 			if (getValueOrEmpty(request, "apfb").equals("true")) nb1 |= NETBITS1_APFALLBACK;
 			if (getValueOrEmpty(request, "mqsv").equals("true")) nb1 |= NETBITS1_MQTTSINGLEVALUES;
+			if (getValueOrEmpty(request, "staticIpEnabled").equals("true")) nb1 |= NETBITS1_STATIC_IP;
+
 			settings->setByte(PROP_NETBITS1, nb1);
 			wlog->notice(F("supportingMqtt set to: %d"), nb1);
+
+            wlog->notice(F("staticIpEnabled set to: %d"), nb1);
+            settings->setString(PROP_STATICIP, getValueOrEmpty(request, "staticip").c_str());
+            settings->setString(PROP_SUBNETMASK, getValueOrEmpty(request, "subnet").c_str());
+            settings->setString(PROP_GATEWAY, getValueOrEmpty(request, "gateway").c_str());
+            settings->setString(PROP_DNS1, getValueOrEmpty(request, "dns1").c_str());
+            settings->setString(PROP_DNS2, getValueOrEmpty(request, "dns2").c_str());
+
 			settings->save(); 
 			this->restart(request, F("Settings saved."));
 			// we must not here this->supportingMqtt -> if it _was_ disabled and we're going to enable it here
@@ -1599,13 +1698,15 @@ private:
 	}
 
 	bool loadSettings(){
-		wlog->trace(F("loading settings, getNetworkSettingsVersion: %d"), settings->getNetworkSettingsVersion());
+		wlog->trace(F("loading settings, getNetworkSettingsVersion: 0x%02x"), settings->getNetworkSettingsVersion());
 		if (settingsOld){
+			settings->reallyReadSettings=false;
+			settingsOld->reallyReadSettings=true;
 			if (settingsOld->getNetworkSettingsVersion()==NETWORKSETTINGS_PRE_FAS114){
 				wlog->notice(F("Reading NetworkSettings PRE_FAS114"));
 				settingsOld->setString(PROP_IDX, 32, "");
 				settingsOld->setString(PROP_SSID, 32, "");
-				settingsOld->setString(PROP_PASSWORD, 64, "");
+				settingsOld->setString(PROP_PASSWORD, 32, "");
 				settingsOld->setByte(PROP_NETBITS1, (NETBITS1_MQTT | NETBITS1_HASS));
 				settingsOld->setString(PROP_MQTTSERVER, 32, "");
 				settingsOld->setString(PROP_MQTTPORT, 4, "1883");
@@ -1628,9 +1729,8 @@ private:
 					settingsOld->setString(PROP_MQTTSTATETOPIC, 16, DEFAULT_TOPIC_STATE); // unused
 					settingsOld->setString(PROP_MQTTSETTOPIC, 16, DEFAULT_TOPIC_SET); // unused
 				}
-			} else {
-				// network settings is the same - but application differs. We need to fill settingsOld
-				wlog->notice(F("Reading NetworkSettings CURRENT"));
+            } else if (settingsOld->getNetworkSettingsVersion()==NETWORKSETTINGS_PRE_FAS123){
+                wlog->notice(F("Reading NetworkSettings PRE_FAS123"));
 				settingsOld->setString(PROP_IDX, 16, "");
 				settingsOld->setString(PROP_SSID, 32, "");
 				settingsOld->setString(PROP_PASSWORD, 32, "");
@@ -1642,23 +1742,59 @@ private:
 				settingsOld->setString(PROP_MQTTTOPIC, 32, "");
 				settingsOld->setString(PROP_MQTTSTATETOPIC, 16, DEFAULT_TOPIC_STATE); // unused
 				settingsOld->setString(PROP_MQTTSETTOPIC, 16, DEFAULT_TOPIC_SET); // unused
+            } else if (settingsOld->getNetworkSettingsVersion()==NETWORKSETTINGS_PR2){
+				wlog->notice(F("Reading NetworkSettings NETWORKSETTINGS_PR2"));
+				settingsOld->setString(PROP_IDX, 16, "");
+				settingsOld->setString(PROP_SSID, 32, "");
+				settingsOld->setString(PROP_PASSWORD, 32, "");
+				settingsOld->setByte(PROP_NETBITS1, (NETBITS1_MQTT | NETBITS1_HASS));
+				settingsOld->setString(PROP_MQTTSERVER, 32, "");
+				settingsOld->setString(PROP_MQTTPORT, 4, "1883");
+				settingsOld->setString(PROP_MQTTUSER, 16, "");
+				settingsOld->setString(PROP_MQTTPASSWORD, 32, "");
+				settingsOld->setString(PROP_MQTTTOPIC, 32, "");
+				settingsOld->setString(PROP_MQTTSTATETOPIC, 16, DEFAULT_TOPIC_STATE); // unused
+				settingsOld->setString(PROP_MQTTSETTOPIC, 16, DEFAULT_TOPIC_SET); // unused
+				settingsOld->setString(PROP_STATICIP, 15, "");
+				settingsOld->setString(PROP_SUBNETMASK, 15, "");
+				settingsOld->setString(PROP_GATEWAY, 15, "");
+				settingsOld->setString(PROP_DNS1, 15, "");
+				settingsOld->setString(PROP_DNS2, 15, "");
+			} else {
+				// network settings is the same than current - but application differs. We need to fill settingsOld, that reading app setting starts at right position
+				wlog->notice(F("Reading NetworkSettings CURRENT"));
+				settingsOld->setString(PROP_IDX, 16, "");
+				settingsOld->setString(PROP_SSID, 32, "");
+				settingsOld->setString(PROP_PASSWORD, 32, "");
+				settingsOld->setByte(PROP_NETBITS1, (NETBITS1_MQTT | NETBITS1_HASS));
+				settingsOld->setString(PROP_MQTTSERVER, 32, "");
+				settingsOld->setString(PROP_MQTTPORT, 5, "1883");
+				settingsOld->setString(PROP_MQTTUSER, 16, "");
+				settingsOld->setString(PROP_MQTTPASSWORD, 32, "");
+				settingsOld->setString(PROP_MQTTTOPIC, 32, "");
+				settingsOld->setString(PROP_STATICIP, 15, "");
+				settingsOld->setString(PROP_SUBNETMASK, 15, "");
+				settingsOld->setString(PROP_GATEWAY, 15, "");
+				settingsOld->setString(PROP_DNS1, 15, "");
+				settingsOld->setString(PROP_DNS2, 15, "");
 			}
-			settingsOld->addingNetworkSettings = false;
+			settingsOld->reallyReadSettings = false;
+		} else {
+			settings->reallyReadSettings=true;
 		}
 
-		
+	
+		wlog->notice(F("Starting to fill new settings"));
 		this->idx = settings->setString(PROP_IDX, 16,
 			(settingsOld && settingsOld->existsSetting(PROP_IDX) ? settingsOld->getString(PROP_IDX) : this->getClientName(true).c_str()));
 		this->ssid = settings->setString(PROP_SSID, 32, (settingsOld && settingsOld->existsSetting(PROP_SSID) ? settingsOld->getString(PROP_SSID) : ""));
 		settings->setString(PROP_PASSWORD, 32, (settingsOld && settingsOld->existsSetting(PROP_PASSWORD) ? settingsOld->getString(PROP_PASSWORD) : ""));
 		this->netBits1 = settings->setByte(PROP_NETBITS1, (settingsOld && settingsOld->getByte(PROP_NETBITS1) ? settingsOld->getByte(PROP_NETBITS1) : (NETBITS1_MQTT | NETBITS1_HASS)));
 		settings->setString(PROP_MQTTSERVER, 32, (settingsOld && settingsOld->existsSetting(PROP_MQTTSERVER) ? settingsOld->getString(PROP_MQTTSERVER) : ""));
-		settings->setString(PROP_MQTTPORT, 4, (settingsOld && settingsOld->existsSetting(PROP_MQTTPORT) ? settingsOld->getString(PROP_MQTTPORT) : "1883"));
+		settings->setString(PROP_MQTTPORT, 5, (settingsOld && settingsOld->existsSetting(PROP_MQTTPORT) ? settingsOld->getString(PROP_MQTTPORT) : "1883"));
 		settings->setString(PROP_MQTTUSER, 16, (settingsOld && settingsOld->existsSetting(PROP_MQTTUSER) ? settingsOld->getString(PROP_MQTTUSER) : ""));
 		settings->setString(PROP_MQTTPASSWORD, 32, (settingsOld && settingsOld->existsSetting(PROP_MQTTPASSWORD) ? settingsOld->getString(PROP_MQTTPASSWORD) : ""));
 		this->mqttBaseTopic = settings->setString(PROP_MQTTTOPIC, 32, (settingsOld && settingsOld->existsSetting(PROP_MQTTTOPIC) ? settingsOld->getString(PROP_MQTTTOPIC) : getIdx()));
-		this->mqttStateTopic = settings->setString("mqttStateTopic", 16, (settingsOld && settingsOld->existsSetting("mqttStateTopic") ? settingsOld->getString("mqttStateTopic") : DEFAULT_TOPIC_STATE)); // unused
-		this->mqttSetTopic = settings->setString("mqttSetTopic", 16, (settingsOld && settingsOld->existsSetting("mqttSetTopic") ? settingsOld->getString("mqttSetTopic") : DEFAULT_TOPIC_SET)); // unused
 
 		// Split mqtt setting into bits - so we keep settings storage compatibility
 		if (this->netBits1->getByte() == 0xFF) this->netBits1->setByte(NETBITS1_MQTT | NETBITS1_HASS); // compatibility
@@ -1677,7 +1813,31 @@ private:
 		this->supportingMqttSingleValues->setBoolean(this->netBits1->getByte() & NETBITS1_MQTTSINGLEVALUES);
 		this->supportingMqttSingleValues->setReadOnly(true);
 
-		settings->addingNetworkSettings = false;
+
+        // Static IP
+        this->staticIpEnabled = new WProperty("staticIpEnabled", "staticIpEnabled", BOOLEAN);
+        this->staticIpEnabled->setBoolean(this->netBits1->getByte() & NETBITS1_STATIC_IP);
+        this->staticIpEnabled->setReadOnly(true);
+        this->staticIp = settings->setString(PROP_STATICIP, 15, (settingsOld && settingsOld->existsSetting(PROP_STATICIP) ? settingsOld->getString(PROP_STATICIP) : ""));
+        this->subnetMask = settings->setString(PROP_SUBNETMASK, 15, (settingsOld && settingsOld->existsSetting(PROP_SUBNETMASK) ? settingsOld->getString(PROP_SUBNETMASK) : "255.255.255.0"));
+        this->gateway = settings->setString(PROP_GATEWAY, 15, (settingsOld && settingsOld->existsSetting(PROP_GATEWAY) ? settingsOld->getString(PROP_GATEWAY) : ""));
+        this->dns1 = settings->setString(PROP_DNS1, 15, (settingsOld && settingsOld->existsSetting(PROP_DNS1) ? settingsOld->getString(PROP_DNS1) : ""));
+        this->dns2 = settings->setString(PROP_DNS2, 15, (settingsOld && settingsOld->existsSetting(PROP_DNS2) ? settingsOld->getString(PROP_DNS2) : ""));
+
+        wlog->notice(F("Static IP enabled: %d; IP: '%s'; Subnet mask: '%s'; Gateway: '%s'; DNS1: %s; DNS2: %s"),
+                        isStaticIpEnabled(), getStaticIp(), getSubnetMask(), getGateway(), getDns1(), getDns2());
+
+		settings->reallyReadSettings = false;
+		if (settings->getSettingsApplicationIsCurrent()){
+			if (!settings->getSettingsNetworkIsCurrent()){
+				wlog->notice(F("OldNetworkSettings/CurrentAppSetting, setting CurrentAddress to %d"), this->settingsOld->getCurrentAddress());
+				this->settings->setCurrentAddress(this->settingsOld->getCurrentAddress());
+				this->deleteSettingsOld();
+			} else {
+				wlog->notice(F("CurrentNetworkSettings/CurrentAppSetting"));
+			}
+			settings->reallyReadSettings=true;
+		}
 		bool settingsStored = (settings->existsSettingsNetwork() || (settingsOld && settingsOld->existsSettingsNetwork()));
 		if (settingsStored) {
 
@@ -1700,8 +1860,8 @@ private:
 			}
 			wlog->notice(F("SSID: '%s'; MQTT enabled: %d; MQTT server: '%s'; MQTT port: %s; WebThings enabled: %d"),
 								getSsid(), isSupportingMqtt(), getMqttServer(), getMqttPort(), isSupportingWebThing());
-
 		}
+
 		EEPROM.end();
 		return settingsStored;
 	}
