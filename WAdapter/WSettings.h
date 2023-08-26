@@ -8,18 +8,20 @@
 const byte STORED_FLAG_OLDLOW = 0x59; //1.00 ..
 const byte STORED_FLAG_OLDHIGH = 0x63; //1.02
 const byte STORED_FLAG_OLD = 0xF0; //FAS
-const byte FLAG_OPTIONS_NETWORK = 0x64; //1.09
-const byte FLAG_OPTIONS_NETWORK_STATIC_IP = 0x65; //1.23
+const byte FLAG_OPTIONS_NETWORK_V1 = 0x64; //1.09
+const byte FLAG_OPTIONS_NETWORK_V2 = 0x65; //PR2  (added static IP)
+const byte FLAG_OPTIONS_NETWORK_V3 = 0x66; //1.23 (longer port)
+const byte FLAG_OPTIONS_NETWORK_CURRENT = FLAG_OPTIONS_NETWORK_V3;
 const int EEPROM_SIZE = 512;
 unsigned int startAddressReadOffset = 2;
 unsigned int startAddressSaveOffset = 2;
+
 
 
 class WSettingItem {
 public:
 	WProperty* value;
 	int address;
-	bool networkSetting;
 	WSettingItem* next = nullptr;
 };
 const int NETWORKSETTINGS_UNKNOWN = 0;
@@ -27,18 +29,25 @@ const int NETWORKSETTINGS_PRE_102 = 1;
 const int NETWORKSETTINGS_PRE_109 = 2;
 const int NETWORKSETTINGS_PRE_FAS114 = 3;
 const int NETWORKSETTINGS_PRE_FAS123 = 4;
-const int NETWORKSETTINGS_CURRENT = 5;
+const int NETWORKSETTINGS_PR2 = 5;
+const int NETWORKSETTINGS_CURRENT = 6;
 
 
 const int APPLICATIONSETTINGS_UNKNOWN = 0;
 
 class WSettings {
 public:
+	/// @brief 
+	/// @param log 
+	/// @param appSettingsFlag 
+	/// @param compatMode
 	WSettings(WLog* log, byte appSettingsFlag, bool compatMode) {
 		this->log = log;
 		this->appSettingsFlag = appSettingsFlag;
-		this->addingNetworkSettings = true;
+		this->reallyReadSettings = true;
 		this->_settingsNeedsUpdate=true;
+		this->_settingsNetworkIsCurrent=false;
+		this->_settingsApplicationIsCurrent=false;
 		this->_compatMode=compatMode;
 		EEPROM.begin(EEPROM_SIZE);
 		uint8_t epromStored = EEPROM.read(0);
@@ -47,27 +56,34 @@ public:
 		this->_existsSettingsApplication = false;		
 		this->_networkSettingsVersion=NETWORKSETTINGS_UNKNOWN;
 		this->_applicationSettingsVersion=APPLICATIONSETTINGS_UNKNOWN;
-		if ((epromStored==FLAG_OPTIONS_NETWORK) || (epromStored==FLAG_OPTIONS_NETWORK_STATIC_IP)){ 
-			this->log->trace(F("settings: NetworksSettings found in Current Version"));
+		if ((epromStored>=FLAG_OPTIONS_NETWORK_V1) && (epromStored<=FLAG_OPTIONS_NETWORK_V3)){
 			// klaus >=1.09 and fas >=1.14-fas
+			this->log->trace(F("settings: NetworkSettings found"));
 			this->_existsSettingsNetwork = true;
-            
-            if (epromStored==FLAG_OPTIONS_NETWORK)
+			switch (epromStored)
 			{
-                this->_networkSettingsVersion=NETWORKSETTINGS_PRE_FAS123;
-            }
-            else
-            {
-                this->_networkSettingsVersion=NETWORKSETTINGS_CURRENT;
-            }
+			case FLAG_OPTIONS_NETWORK_V1:
+				this->log->trace(F("V1"));
+				this->_networkSettingsVersion=NETWORKSETTINGS_PRE_FAS123;
+				break;
+			case FLAG_OPTIONS_NETWORK_V2:
+				this->log->trace(F("V2"));
+				this->_networkSettingsVersion=NETWORKSETTINGS_PR2;
+				break;
+			case FLAG_OPTIONS_NETWORK_V3:
+				this->log->trace(F("V3"));
+				this->_networkSettingsVersion=NETWORKSETTINGS_CURRENT;
+				this->_settingsNetworkIsCurrent=true;
+				break;
+			}
 
 			uint8_t epromStoredApplication = EEPROM.read(1);
 			this->log->trace(F("settings: old byte 1: 0x%02x"), epromStoredApplication);
 			this->_applicationSettingsVersion=epromStoredApplication;
 			if (epromStoredApplication == this->appSettingsFlag){
-				this->log->trace(F("settings: ApplicationSettings found in Current Version"));
+				this->log->trace(F("settings: App current"));
+				this->_settingsApplicationIsCurrent=true;
 				this->_existsSettingsApplication = true;
-				this->_settingsNeedsUpdate=false;
 			}			
 		} else if (compatMode){
 			startAddressReadOffset=1;
@@ -82,7 +98,7 @@ public:
 			}
 		}
 
-		this->log->trace(F("WSettings done, networkSettingsVersion: %d, app: %d"), this->getNetworkSettingsVersion(), this->getApplicationSettingsVersion());
+		this->log->trace(F("WSettings done, networkSettingsVersion: 0x%02x, app: 0x%02x"), this->getNetworkSettingsVersion(), this->getApplicationSettingsVersion());
 		EEPROM.end();
 	}
 
@@ -102,12 +118,15 @@ public:
 	void save() {
 		EEPROM.begin(EEPROM_SIZE);
 		WSettingItem* settingItem = firstSetting;
+		int address=0;
 		while (settingItem != nullptr) {
+			settingItem->address=address;
 			save(settingItem);
+			address+=settingItem->value->getLength(); //recalculate address while writing, during upgrade read-positions may differ
 			settingItem = settingItem->next;
 		}
 		//1. Byte - settingsStored flag
-		EEPROM.write(0, FLAG_OPTIONS_NETWORK_STATIC_IP);
+		EEPROM.write(0, FLAG_OPTIONS_NETWORK_CURRENT);
 		EEPROM.write(1, this->appSettingsFlag);
 		EEPROM.commit();
 		EEPROM.end();
@@ -137,8 +156,17 @@ public:
 	unsigned int getApplicationSettingsCurrent(){
 		return this->appSettingsFlag;
 	}
+	bool getSettingsApplicationIsCurrent(){
+		return this->_settingsApplicationIsCurrent;
+	}
+	bool getSettingsNetworkIsCurrent(){
+		return this->_settingsNetworkIsCurrent;
+	}
 
 	int getCurrentSettingsAddress(){
+		return (this->lastSetting != nullptr ?  this->lastSetting->address : 0);
+	}
+	int getLastSettingsAddress(){
 		return (this->lastSetting != nullptr ?  this->lastSetting->address : 0);
 	}
 
@@ -168,10 +196,10 @@ public:
 	void add(WProperty* property) {
 		if (!exists(property)) {
 			WSettingItem* settingItem = addSetting(property);
-				if (((settingItem->networkSetting) && (this->existsSettingsNetwork())) ||
-				((!settingItem->networkSetting) && (this->existsSettingsApplication() || this->_compatMode))) {
+			//really load setting only from eeprom if not in updating mode
+				if (this->reallyReadSettings) {
 
-				log->trace(F("Loading setting: Address=%d, Id='%s', size=%d, MEM: %d"),
+				log->trace(F("Loading setting: Address=%d, Id='%s', size=%d, Max: %d"),
 					settingItem->address + startAddressReadOffset, property->getId(), property->getLength(), EEPROM_SIZE);
 				if (settingItem->address + startAddressReadOffset + property->getLength() > EEPROM_SIZE){
 					log->error(F("Cannot add EPROM property. Size too small, Adrress=%d, Id='%s', size=%d, MEM: %d"),
@@ -229,7 +257,7 @@ public:
 				}
 				EEPROM.end();
 			} else {
-				log->trace(F("NOT Loading setting %s (!current)"), property->getId());
+				log->trace(F("NOT reallyReading setting %s"), property->getId());
 			}
 			property->setSettingsNotification([this](WProperty* property) {save(property);});
 		}
@@ -359,8 +387,6 @@ public:
 		return setting;
 	}
 
-
-
 	void copyValueFrom(const char* id, WSettings* settings2) {
 		WProperty * oldProp;
 		if (settings2 == nullptr) return;
@@ -369,28 +395,38 @@ public:
 		//WProperty* setting = getSetting(id);
 	}
 
-	bool addingNetworkSettings;
+	bool reallyReadSettings;
+
+	void setCurrentAddress(int address){
+		this->currentAddress=address;
+	}
+	int getCurrentAddress(){
+		return this->currentAddress;
+	}
 protected:
 	WSettingItem* addSetting(WProperty* setting) {
 		WSettingItem* settingItem = new WSettingItem();
 		settingItem->value = setting;
-		settingItem->networkSetting = this->addingNetworkSettings;
 		if (this->lastSetting == nullptr) {
 			settingItem->address = 0;
 			this->firstSetting = settingItem;
 			this->lastSetting = settingItem;
 		} else {
-			settingItem->address = this->lastSetting->address + this->lastSetting->value->getLength();
+			settingItem->address = this->getCurrentAddress();			
 			this->lastSetting->next = settingItem;
 			this->lastSetting = settingItem;
 		}
+		this->setCurrentAddress(settingItem->address + settingItem->value->getLength());
 		return settingItem;
 	}
 
 	void save(WSettingItem* settingItem) {
 		WProperty* setting = settingItem->value;
+
+		log->trace(F("Saving setting: Address=%d, Id='%s', size=%d, Max: %d"),
+			settingItem->address + startAddressReadOffset, setting->getId(), setting->getLength(), EEPROM_SIZE);
 		if (settingItem->address  + startAddressSaveOffset + setting->getLength() > EEPROM_SIZE){
-			log->error(F("Cannot save to EPROM. Size too small, Adrress=%d, Id='%s', size=%d, MEM: %d"),
+			log->error(F("Cannot save to EPROM. Size too small, Adrress=%d, Id='%s', size=%d, Max: %d"),
 				settingItem->address + startAddressSaveOffset, setting->getId(), setting->getLength(), EEPROM_SIZE);
 			return;
 		}
@@ -440,17 +476,19 @@ protected:
 		}
 
 	}
+WSettingItem* firstSetting = nullptr;
+WSettingItem* lastSetting = nullptr;
 
 private:
 	WLog* log;
 	byte appSettingsFlag;
 	bool _existsSettingsNetwork, _existsSettingsApplication;
+	bool _settingsNetworkIsCurrent, _settingsApplicationIsCurrent;
 	bool _settingsNeedsUpdate;
 	bool _compatMode;
 	unsigned int _networkSettingsVersion;
 	unsigned int _applicationSettingsVersion;
-	WSettingItem* firstSetting = nullptr;
-	WSettingItem* lastSetting = nullptr;
+	int currentAddress=0;
 
 	const char* readString(int address, int length) {
 		char* data = new char[length+ 1]; //Max 100 Bytes

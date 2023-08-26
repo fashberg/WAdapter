@@ -199,6 +199,7 @@ const static char HTTP_HOME_BUTTON[]              PROGMEM = R"=====(
 )=====";
 
 const static char HTTP_FORM_FIRMWARE[] PROGMEM = R"=====(
+Hint: You will loose all settings when Downgrading to WThermostat &lt; 1.23!<br>
 <form method='POST' action='' enctype='multipart/form-data' onSubmit="disableBtn('fw')">
 	<div>
 		<input type='file' accept='.bin, .bin.gz' name='update'>
